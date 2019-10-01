@@ -12,9 +12,10 @@ import {
   createFormComponent,
   createSandbox,
   setProps,
+  describeRepeated,
 } from "./test_utils";
 
-describe("Form", () => {
+describeRepeated("Form common", createFormComponent => {
   let sandbox;
 
   beforeEach(() => {
@@ -516,6 +517,45 @@ describe("Form", () => {
       expect(node.querySelector("input[type=text]").value).eql("hello");
     });
 
+    it("should propagate referenced definition defaults in objects with additionalProperties", () => {
+      const schema = {
+        definitions: {
+          testdef: { type: "string" },
+        },
+        type: "object",
+        additionalProperties: {
+          $ref: "#/definitions/testdef",
+        },
+      };
+
+      const { node } = createFormComponent({ schema });
+
+      Simulate.click(node.querySelector(".btn-add"));
+
+      expect(node.querySelector("input[type=text]").value).eql("newKey");
+    });
+
+    it("should propagate referenced definition defaults in objects with additionalProperties that have a type present", () => {
+      // Though `additionalProperties` has a `type` present here, it also has a `$ref` so that
+      // referenced schema should override it.
+      const schema = {
+        definitions: {
+          testdef: { type: "number" },
+        },
+        type: "object",
+        additionalProperties: {
+          type: "string",
+          $ref: "#/definitions/testdef",
+        },
+      };
+
+      const { node } = createFormComponent({ schema });
+
+      Simulate.click(node.querySelector(".btn-add"));
+
+      expect(node.querySelector("input[type=number]").value).eql("0");
+    });
+
     it("should recursively handle referenced definitions", () => {
       const schema = {
         $ref: "#/definitions/node",
@@ -743,25 +783,21 @@ describe("Form", () => {
       },
     };
 
-    it("should propagate deeply nested defaults to form state", done => {
+    it("should propagate deeply nested defaults to form state", () => {
       const { comp, node } = createFormComponent({ schema });
 
       Simulate.click(node.querySelector(".array-item-add button"));
-      Simulate.submit(node);
+      Simulate.Simulate.submit(node);
 
-      // For some reason this may take some time to render, hence the safe wait.
-      setTimeout(() => {
-        expect(comp.state.formData).eql({
-          object: {
-            array: [
-              {
-                bool: true,
-              },
-            ],
-          },
-        });
-        done();
-      }, 250);
+      expect(comp.state.formData).eql({
+        object: {
+          array: [
+            {
+              bool: true,
+            },
+          ],
+        },
+      });
     });
   });
 
@@ -810,274 +846,9 @@ describe("Form", () => {
         onError,
       });
 
-      Simulate.submit(node);
+      Simulate.Simulate.submit(node);
 
       sinon.assert.notCalled(onSubmit);
-    });
-
-    it("should call getUsedFormData when the omitExtraData prop is true", () => {
-      const schema = {
-        type: "object",
-        properties: {
-          foo: {
-            type: "string",
-          },
-        },
-      };
-      const formData = {
-        foo: "",
-      };
-      const onSubmit = sandbox.spy();
-      const onError = sandbox.spy();
-      const omitExtraData = true;
-      const { comp, node } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-        onError,
-        omitExtraData,
-      });
-
-      sandbox.stub(comp, "getUsedFormData").returns({
-        foo: "",
-      });
-
-      Simulate.submit(node);
-
-      sinon.assert.calledOnce(comp.getUsedFormData);
-    });
-  });
-
-  describe("getUsedFormData", () => {
-    it("should just return the single input form value", () => {
-      const schema = {
-        title: "A single-field form",
-        type: "string",
-      };
-      const formData = "foo";
-      const onSubmit = sandbox.spy();
-      const { comp } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-      });
-
-      const result = comp.getUsedFormData(formData, []);
-      expect(result).eql("foo");
-    });
-
-    it("should call getUsedFormData with data from fields in event", () => {
-      const schema = {
-        type: "object",
-        properties: {
-          foo: { type: "string" },
-        },
-      };
-      const formData = {
-        foo: "bar",
-      };
-      const onSubmit = sandbox.spy();
-      const { comp } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-      });
-
-      const result = comp.getUsedFormData(formData, ["foo"]);
-      expect(result).eql({ foo: "bar" });
-    });
-
-    it("unused form values should be omitted", () => {
-      const schema = {
-        type: "object",
-        properties: {
-          foo: { type: "string" },
-          baz: { type: "string" },
-          list: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                title: { type: "string" },
-                details: { type: "string" },
-              },
-            },
-          },
-        },
-      };
-
-      const formData = {
-        foo: "bar",
-        baz: "buzz",
-        list: [
-          { title: "title0", details: "details0" },
-          { title: "title1", details: "details1" },
-        ],
-      };
-      const onSubmit = sandbox.spy();
-      const { comp } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-      });
-
-      const result = comp.getUsedFormData(formData, [
-        "foo",
-        "list.0.title",
-        "list.1.details",
-      ]);
-      expect(result).eql({
-        foo: "bar",
-        list: [{ title: "title0" }, { details: "details1" }],
-      });
-    });
-  });
-
-  describe("getFieldNames()", () => {
-    it("should return an empty array for a single input form", () => {
-      const schema = {
-        type: "string",
-      };
-
-      const formData = "foo";
-
-      const onSubmit = sandbox.spy();
-      const { comp } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-      });
-
-      const pathSchema = {
-        $name: "",
-      };
-
-      const fieldNames = comp.getFieldNames(pathSchema, formData);
-      expect(fieldNames).eql([]);
-    });
-
-    it("should get field names from pathSchema", () => {
-      const schema = {};
-
-      const formData = {
-        extra: {
-          foo: "bar",
-        },
-        level1: {
-          level2: "test",
-          anotherThing: {
-            anotherThingNested: "abc",
-            extra: "asdf",
-            anotherThingNested2: 0,
-          },
-        },
-        level1a: 1.23,
-      };
-
-      const onSubmit = sandbox.spy();
-      const { comp } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-      });
-
-      const pathSchema = {
-        $name: "",
-        level1: {
-          $name: "level1",
-          level2: { $name: "level1.level2" },
-          anotherThing: {
-            $name: "level1.anotherThing",
-            anotherThingNested: {
-              $name: "level1.anotherThing.anotherThingNested",
-            },
-            anotherThingNested2: {
-              $name: "level1.anotherThing.anotherThingNested2",
-            },
-          },
-        },
-        level1a: {
-          $name: "level1a",
-        },
-      };
-
-      const fieldNames = comp.getFieldNames(pathSchema, formData);
-      expect(fieldNames.sort()).eql(
-        [
-          "level1a",
-          "level1.level2",
-          "level1.anotherThing.anotherThingNested",
-          "level1.anotherThing.anotherThingNested2",
-        ].sort()
-      );
-    });
-
-    it("should get field names from pathSchema with array", () => {
-      const schema = {};
-
-      const formData = {
-        address_list: [
-          {
-            street_address: "21, Jump Street",
-            city: "Babel",
-            state: "Neverland",
-          },
-          {
-            street_address: "1234 Schema Rd.",
-            city: "New York",
-            state: "Arizona",
-          },
-        ],
-      };
-
-      const onSubmit = sandbox.spy();
-      const { comp } = createFormComponent({
-        schema,
-        formData,
-        onSubmit,
-      });
-
-      const pathSchema = {
-        $name: "",
-        address_list: {
-          "0": {
-            $name: "address_list.0",
-            city: {
-              $name: "address_list.0.city",
-            },
-            state: {
-              $name: "address_list.0.state",
-            },
-            street_address: {
-              $name: "address_list.0.street_address",
-            },
-          },
-          "1": {
-            $name: "address_list.1",
-            city: {
-              $name: "address_list.1.city",
-            },
-            state: {
-              $name: "address_list.1.state",
-            },
-            street_address: {
-              $name: "address_list.1.street_address",
-            },
-          },
-        },
-      };
-
-      const fieldNames = comp.getFieldNames(pathSchema, formData);
-      expect(fieldNames.sort()).eql(
-        [
-          "address_list.0.city",
-          "address_list.0.state",
-          "address_list.0.street_address",
-          "address_list.1.city",
-          "address_list.1.state",
-          "address_list.1.street_address",
-        ].sort()
-      );
     });
   });
 
@@ -1110,74 +881,6 @@ describe("Form", () => {
           foo: "new",
         },
       });
-    });
-
-    it("should call getUsedFormData when the omitExtraData prop is true and liveOmit is true", () => {
-      const schema = {
-        type: "object",
-        properties: {
-          foo: {
-            type: "string",
-          },
-        },
-      };
-      const formData = {
-        foo: "bar",
-      };
-      const onChange = sandbox.spy();
-      const omitExtraData = true;
-      const liveOmit = true;
-      const { node, comp } = createFormComponent({
-        schema,
-        formData,
-        onChange,
-        omitExtraData,
-        liveOmit,
-      });
-
-      sandbox.stub(comp, "getUsedFormData").returns({
-        foo: "",
-      });
-
-      Simulate.change(node.querySelector("[type=text]"), {
-        target: { value: "new" },
-      });
-
-      sinon.assert.calledOnce(comp.getUsedFormData);
-    });
-
-    it("should not call getUsedFormData when the omitExtraData prop is true and liveValidate is false", () => {
-      const schema = {
-        type: "object",
-        properties: {
-          foo: {
-            type: "string",
-          },
-        },
-      };
-      const formData = {
-        foo: "bar",
-      };
-      const onChange = sandbox.spy();
-      const omitExtraData = true;
-      const liveValidate = false;
-      const { node, comp } = createFormComponent({
-        schema,
-        formData,
-        onChange,
-        omitExtraData,
-        liveValidate,
-      });
-
-      sandbox.stub(comp, "getUsedFormData").returns({
-        foo: "",
-      });
-
-      Simulate.change(node.querySelector("[type=text]"), {
-        target: { value: "new" },
-      });
-
-      sinon.assert.notCalled(comp.getUsedFormData);
     });
   });
   describe("Blur handler", () => {
@@ -1247,7 +950,7 @@ describe("Form", () => {
       const onError = sandbox.spy();
       const { node } = createFormComponent({ schema, formData, onError });
 
-      Simulate.submit(node);
+      Simulate.Simulate.submit(node);
 
       sinon.assert.calledOnce(onError);
     });
@@ -1455,6 +1158,287 @@ describe("Form", () => {
     });
   });
 
+  describe("Internal formData updates", () => {
+    it("root", () => {
+      const formProps = {
+        schema: { type: "string" },
+        liveValidate: true,
+      };
+      const { comp, node } = createFormComponent(formProps);
+
+      Simulate.change(node.querySelector("input[type=text]"), {
+        target: { value: "yo" },
+      });
+
+      expect(comp.state.formData).eql("yo");
+    });
+    it("object", () => {
+      const { comp, node } = createFormComponent({
+        schema: {
+          type: "object",
+          properties: {
+            foo: {
+              type: "string",
+            },
+          },
+        },
+      });
+
+      Simulate.change(node.querySelector("input[type=text]"), {
+        target: { value: "yo" },
+      });
+
+      expect(comp.state.formData).eql({ foo: "yo" });
+    });
+    it("array of strings", () => {
+      const schema = {
+        type: "array",
+        items: {
+          type: "string",
+        },
+      };
+      const { comp, node } = createFormComponent({ schema });
+
+      Simulate.click(node.querySelector(".array-item-add button"));
+
+      Simulate.change(node.querySelector("input[type=text]"), {
+        target: { value: "yo" },
+      });
+
+      expect(comp.state.formData).eql(["yo"]);
+    });
+    it("array of objects", () => {
+      const schema = {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+          },
+        },
+      };
+      const { comp, node } = createFormComponent({ schema });
+
+      Simulate.click(node.querySelector(".array-item-add button"));
+
+      Simulate.change(node.querySelector("input[type=text]"), {
+        target: { value: "yo" },
+      });
+
+      expect(comp.state.formData).eql([{ name: "yo" }]);
+    });
+    it("dependency with array of objects", () => {
+      const schema = {
+        definitions: {},
+        type: "object",
+        properties: {
+          show: {
+            type: "boolean",
+          },
+        },
+        dependencies: {
+          show: {
+            oneOf: [
+              {
+                properties: {
+                  show: {
+                    const: true,
+                  },
+                  participants: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        name: {
+                          type: "string",
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      };
+<<<<<<< HEAD
+      comp = createFormComponent(formProps).comp;
+    });
+
+    describe("when the form data is set to null", () => {
+      beforeEach(() =>
+        comp.UNSAFE_componentWillReceiveProps({ formData: null })
+      );
+=======
+      const { comp, node } = createFormComponent({ schema });
+>>>>>>> 18b2ec42c9cfc4
+
+      Simulate.change(node.querySelector("[type=checkbox]"), {
+        target: { checked: true },
+      });
+
+<<<<<<< HEAD
+      beforeEach(() =>
+        comp.UNSAFE_componentWillReceiveProps({
+          schema: newSchema,
+          formData: "some value",
+        })
+      );
+=======
+      Simulate.click(node.querySelector(".array-item-add button"));
+>>>>>>> 18b2ec42c9cfc4
+
+      Simulate.change(node.querySelector("input[type=text]"), {
+        target: { value: "yo" },
+      });
+<<<<<<< HEAD
+    });
+
+    describe("when the schema default is changed and formData is changed", () => {
+      const newSchema = {
+        type: "string",
+        default: "the new default",
+      };
+
+      beforeEach(() =>
+        comp.UNSAFE_componentWillReceiveProps({
+          schema: newSchema,
+          formData: "something else",
+        })
+      );
+=======
+>>>>>>> 18b2ec42c9cfc4
+
+      expect(comp.state.formData).eql({
+        show: true,
+        participants: [{ name: "yo" }],
+      });
+    });
+  });
+
+  describe("Error contextualization", () => {
+    describe("on form state updated", () => {
+      const schema = {
+        type: "string",
+        minLength: 8,
+      };
+
+<<<<<<< HEAD
+      beforeEach(() =>
+        comp.UNSAFE_componentWillReceiveProps({
+          schema: newSchema,
+          formData: null,
+        })
+      );
+=======
+      describe("Lazy validation", () => {
+        it("should not update the errorSchema when the formData changes", () => {
+          const { comp, node } = createFormComponent({ schema });
+>>>>>>> 18b2ec42c9cfc4
+
+          Simulate.change(node.querySelector("input[type=text]"), {
+            target: { value: "short" },
+          });
+
+          expect(comp.state.errorSchema).eql({});
+        });
+
+        it("should not denote an error in the field", () => {
+          const { node } = createFormComponent({ schema });
+
+          Simulate.change(node.querySelector("input[type=text]"), {
+            target: { value: "short" },
+          });
+
+          expect(node.querySelectorAll(".field-error")).to.have.length.of(0);
+        });
+
+        it("should clean contextualized errors up when they're fixed", () => {
+          const altSchema = {
+            type: "object",
+            properties: {
+              field1: { type: "string", minLength: 8 },
+              field2: { type: "string", minLength: 8 },
+            },
+          };
+          const { node } = createFormComponent({
+            schema: altSchema,
+            formData: {
+              field1: "short",
+              field2: "short",
+            },
+          });
+
+          Simulate.submit(node);
+
+          // Fix the first field
+          Simulate.change(node.querySelectorAll("input[type=text]")[0], {
+            target: { value: "fixed error" },
+          });
+          Simulate.submit(node);
+
+<<<<<<< HEAD
+        comp.UNSAFE_componentWillReceiveProps({ formData: "yo" });
+=======
+          expect(node.querySelectorAll(".field-error")).to.have.length.of(1);
+>>>>>>> 18b2ec42c9cfc4
+
+          // Fix the second field
+          Simulate.change(node.querySelectorAll("input[type=text]")[1], {
+            target: { value: "fixed error too" },
+          });
+          Simulate.Simulate.submit(node);
+
+          // No error remaining, shouldn't throw.
+          Simulate.Simulate.submit(node);
+
+<<<<<<< HEAD
+        comp.UNSAFE_componentWillReceiveProps({
+          formData: "yo",
+          schema: { type: "number" },
+        });
+
+        expect(comp.state.errors).to.have.length.of(1);
+        expect(comp.state.errors[0].stack).to.eql("should be number");
+      });
+    });
+
+    describe("object level", () => {
+      it("should update form state from new formData prop value", () => {
+        const { comp } = createFormComponent({
+          schema: {
+            type: "object",
+            properties: {
+              foo: {
+                type: "string",
+              },
+            },
+          },
+        });
+
+        comp.UNSAFE_componentWillReceiveProps({ formData: { foo: "yo" } });
+
+        expect(comp.state.formData).eql({ foo: "yo" });
+      });
+    });
+
+    describe("array level", () => {
+      it("should update form state from new formData prop value", () => {
+        const schema = {
+          type: "array",
+          items: {
+            type: "string",
+          },
+        };
+        const { comp } = createFormComponent({ schema });
+
+        comp.UNSAFE_componentWillReceiveProps({ formData: ["yo"] });
+
+        expect(comp.state.formData).eql(["yo"]);
+      });
+    });
+  });
+
   describe("Error contextualization", () => {
     describe("on form state updated", () => {
       const schema = {
@@ -1518,6 +1502,8 @@ describe("Form", () => {
           // No error remaining, shouldn't throw.
           Simulate.submit(node);
 
+=======
+>>>>>>> 18b2ec42c9cfc4
           expect(node.querySelectorAll(".field-error")).to.have.length.of(0);
         });
       });
@@ -1581,7 +1567,7 @@ describe("Form", () => {
           Simulate.change(node.querySelector("input[type=text]"), {
             target: { value: "short" },
           });
-          Simulate.submit(node);
+          Simulate.Simulate.submit(node);
 
           expect(comp.state.errorSchema).eql({});
         });
@@ -1603,7 +1589,7 @@ describe("Form", () => {
         Simulate.change(node.querySelector("input[type=text]"), {
           target: { value: "short" },
         });
-        Simulate.submit(node);
+        Simulate.Simulate.submit(node);
 
         expect(comp.state.errorSchema).eql({
           __errors: ["should NOT be shorter than 8 characters"],
@@ -1617,7 +1603,7 @@ describe("Form", () => {
         Simulate.change(node.querySelector("input[type=text]"), {
           target: { value: "short" },
         });
-        Simulate.submit(node);
+        Simulate.Simulate.submit(node);
 
         sinon.assert.calledWithMatch(
           onError,
@@ -1640,7 +1626,7 @@ describe("Form", () => {
         Simulate.change(node.querySelector("input[type=text]"), {
           target: { value: "short" },
         });
-        Simulate.submit(node);
+        Simulate.Simulate.submit(node);
 
         expect(comp.state.errorSchema).eql({
           __errors: ["should NOT be shorter than 8 characters"],
@@ -1651,7 +1637,7 @@ describe("Form", () => {
         Simulate.change(node.querySelector("input[type=text]"), {
           target: { value: "long enough" },
         });
-        Simulate.submit(node);
+        Simulate.Simulate.submit(node);
 
         expect(comp.state.errorSchema).eql({});
         expect(comp.state.errors).eql([]);
@@ -2083,7 +2069,7 @@ describe("Form", () => {
       },
     };
 
-    it("should replace state when formData have keys removed", () => {
+    it("should replace state when props remove formData keys", () => {
       const formData = { foo: "foo", bar: "bar" };
       const { comp, node } = createFormComponent({ schema, formData });
       comp.UNSAFE_componentWillReceiveProps({
@@ -2103,7 +2089,7 @@ describe("Form", () => {
       expect(comp.state.formData).eql({ bar: "baz" });
     });
 
-    it("should replace state when formData keys have changed", () => {
+    it("should replace state when props change formData keys", () => {
       const formData = { foo: "foo", bar: "bar" };
       const { comp, node } = createFormComponent({ schema, formData });
       comp.UNSAFE_componentWillReceiveProps({
@@ -2488,5 +2474,466 @@ describe("Form", () => {
       });
       expect(node.querySelector("#root_lastName").value).eql("Norris");
     });
+  });
+});
+
+describe("Form omitExtraData and liveOmit", () => {
+  let sandbox;
+
+  beforeEach(() => {
+    sandbox = createSandbox();
+  });
+
+  afterEach(() => {
+    sandbox.restore();
+  });
+
+  it("should call getUsedFormData when the omitExtraData prop is true and liveOmit is true", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        foo: {
+          type: "string",
+        },
+      },
+    };
+    const formData = {
+      foo: "bar",
+    };
+    const onChange = sandbox.spy();
+    const omitExtraData = true;
+    const liveOmit = true;
+    const { node, comp } = createFormComponent({
+      schema,
+      formData,
+      onChange,
+      omitExtraData,
+      liveOmit,
+    });
+
+    sandbox.stub(comp, "getUsedFormData").returns({
+      foo: "",
+    });
+
+    Simulate.change(node.querySelector("[type=text]"), {
+      target: { value: "new" },
+    });
+
+    sinon.assert.calledOnce(comp.getUsedFormData);
+  });
+
+  it("should not call getUsedFormData when the omitExtraData prop is true and liveOmit is unspecified", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        foo: {
+          type: "string",
+        },
+      },
+    };
+    const formData = {
+      foo: "bar",
+    };
+    const onChange = sandbox.spy();
+    const omitExtraData = true;
+    const { node, comp } = createFormComponent({
+      schema,
+      formData,
+      onChange,
+      omitExtraData,
+    });
+
+    sandbox.stub(comp, "getUsedFormData").returns({
+      foo: "",
+    });
+
+    Simulate.change(node.querySelector("[type=text]"), {
+      target: { value: "new" },
+    });
+
+    sinon.assert.notCalled(comp.getUsedFormData);
+  });
+
+  describe("getUsedFormData", () => {
+    it("should call getUsedFormData when the omitExtraData prop is true", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          foo: {
+            type: "string",
+          },
+        },
+      };
+      const formData = {
+        foo: "",
+      };
+      const onSubmit = sandbox.spy();
+      const onError = sandbox.spy();
+      const omitExtraData = true;
+      const { comp, node } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+        onError,
+        omitExtraData,
+      });
+
+      sandbox.stub(comp, "getUsedFormData").returns({
+        foo: "",
+      });
+
+      Simulate.Simulate.submit(node);
+
+      sinon.assert.calledOnce(comp.getUsedFormData);
+    });
+    it("should just return the single input form value", () => {
+      const schema = {
+        title: "A single-field form",
+        type: "string",
+      };
+      const formData = "foo";
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const result = comp.getUsedFormData(formData, []);
+      expect(result).eql("foo");
+    });
+
+    it("should return the root level array", () => {
+      const schema = {
+        type: "array",
+        items: {
+          type: "string",
+        },
+      };
+      const formData = [];
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const result = comp.getUsedFormData(formData, []);
+      expect(result).eql([]);
+    });
+
+    it("should call getUsedFormData with data from fields in event", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          foo: { type: "string" },
+        },
+      };
+      const formData = {
+        foo: "bar",
+      };
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const result = comp.getUsedFormData(formData, ["foo"]);
+      expect(result).eql({ foo: "bar" });
+    });
+
+    it("unused form values should be omitted", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          foo: { type: "string" },
+          baz: { type: "string" },
+          list: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                details: { type: "string" },
+              },
+            },
+          },
+        },
+      };
+
+      const formData = {
+        foo: "bar",
+        baz: "buzz",
+        list: [
+          { title: "title0", details: "details0" },
+          { title: "title1", details: "details1" },
+        ],
+      };
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const result = comp.getUsedFormData(formData, [
+        "foo",
+        "list.0.title",
+        "list.1.details",
+      ]);
+      expect(result).eql({
+        foo: "bar",
+        list: [{ title: "title0" }, { details: "details1" }],
+      });
+    });
+  });
+
+  describe("getFieldNames()", () => {
+    it("should return an empty array for a single input form", () => {
+      const schema = {
+        type: "string",
+      };
+
+      const formData = "foo";
+
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const pathSchema = {
+        $name: "",
+      };
+
+      const fieldNames = comp.getFieldNames(pathSchema, formData);
+      expect(fieldNames).eql([]);
+    });
+
+    it("should get field names from pathSchema", () => {
+      const schema = {};
+
+      const formData = {
+        extra: {
+          foo: "bar",
+        },
+        level1: {
+          level2: "test",
+          anotherThing: {
+            anotherThingNested: "abc",
+            extra: "asdf",
+            anotherThingNested2: 0,
+          },
+        },
+        level1a: 1.23,
+      };
+
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const pathSchema = {
+        $name: "",
+        level1: {
+          $name: "level1",
+          level2: { $name: "level1.level2" },
+          anotherThing: {
+            $name: "level1.anotherThing",
+            anotherThingNested: {
+              $name: "level1.anotherThing.anotherThingNested",
+            },
+            anotherThingNested2: {
+              $name: "level1.anotherThing.anotherThingNested2",
+            },
+          },
+        },
+        level1a: {
+          $name: "level1a",
+        },
+      };
+
+      const fieldNames = comp.getFieldNames(pathSchema, formData);
+      expect(fieldNames.sort()).eql(
+        [
+          "level1a",
+          "level1.level2",
+          "level1.anotherThing.anotherThingNested",
+          "level1.anotherThing.anotherThingNested2",
+        ].sort()
+      );
+    });
+
+    it("should get field names from pathSchema with array", () => {
+      const schema = {};
+
+      const formData = {
+        address_list: [
+          {
+            street_address: "21, Jump Street",
+            city: "Babel",
+            state: "Neverland",
+          },
+          {
+            street_address: "1234 Schema Rd.",
+            city: "New York",
+            state: "Arizona",
+          },
+        ],
+      };
+
+      const onSubmit = sandbox.spy();
+      const { comp } = createFormComponent({
+        schema,
+        formData,
+        onSubmit,
+      });
+
+      const pathSchema = {
+        $name: "",
+        address_list: {
+          "0": {
+            $name: "address_list.0",
+            city: {
+              $name: "address_list.0.city",
+            },
+            state: {
+              $name: "address_list.0.state",
+            },
+            street_address: {
+              $name: "address_list.0.street_address",
+            },
+          },
+          "1": {
+            $name: "address_list.1",
+            city: {
+              $name: "address_list.1.city",
+            },
+            state: {
+              $name: "address_list.1.state",
+            },
+            street_address: {
+              $name: "address_list.1.street_address",
+            },
+          },
+        },
+      };
+
+      const fieldNames = comp.getFieldNames(pathSchema, formData);
+      expect(fieldNames.sort()).eql(
+        [
+          "address_list.0.city",
+          "address_list.0.state",
+          "address_list.0.street_address",
+          "address_list.1.city",
+          "address_list.1.state",
+          "address_list.1.street_address",
+        ].sort()
+      );
+    });
+  });
+
+  it("should not omit data on change with omitExtraData=false and liveOmit=false", () => {
+    const omitExtraData = false;
+    const liveOmit = false;
+    const schema = {
+      type: "object",
+      properties: {
+        foo: { type: "string" },
+        bar: { type: "string" },
+      },
+    };
+    const formData = { foo: "foo", baz: "baz" };
+    const { comp, node } = createFormComponent({
+      schema,
+      formData,
+      omitExtraData,
+      liveOmit,
+    });
+
+    Simulate.change(node.querySelector("#root_foo"), {
+      target: { value: "foobar" },
+    });
+
+    expect(comp.state.formData).eql({ foo: "foobar", baz: "baz" });
+  });
+
+  it("should not omit data on change with omitExtraData=true and liveOmit=false", () => {
+    const omitExtraData = true;
+    const liveOmit = false;
+    const schema = {
+      type: "object",
+      properties: {
+        foo: { type: "string" },
+        bar: { type: "string" },
+      },
+    };
+    const formData = { foo: "foo", baz: "baz" };
+    const { comp, node } = createFormComponent({
+      schema,
+      formData,
+      omitExtraData,
+      liveOmit,
+    });
+
+    Simulate.change(node.querySelector("#root_foo"), {
+      target: { value: "foobar" },
+    });
+
+    expect(comp.state.formData).eql({ foo: "foobar", baz: "baz" });
+  });
+
+  it("should not omit data on change with omitExtraData=false and liveOmit=true", () => {
+    const omitExtraData = false;
+    const liveOmit = true;
+    const schema = {
+      type: "object",
+      properties: {
+        foo: { type: "string" },
+        bar: { type: "string" },
+      },
+    };
+    const formData = { foo: "foo", baz: "baz" };
+    const { comp, node } = createFormComponent({
+      schema,
+      formData,
+      omitExtraData,
+      liveOmit,
+    });
+
+    Simulate.change(node.querySelector("#root_foo"), {
+      target: { value: "foobar" },
+    });
+
+    expect(comp.state.formData).eql({ foo: "foobar", baz: "baz" });
+  });
+
+  it("should omit data on change with omitExtraData=true and liveOmit=true", () => {
+    const omitExtraData = true;
+    const liveOmit = true;
+    const schema = {
+      type: "object",
+      properties: {
+        foo: { type: "string" },
+        bar: { type: "string" },
+      },
+    };
+    const formData = { foo: "foo", baz: "baz" };
+    const { comp, node } = createFormComponent({
+      schema,
+      formData,
+      omitExtraData,
+      liveOmit,
+    });
+
+    Simulate.change(node.querySelector("#root_foo"), {
+      target: { value: "foobar" },
+    });
+
+    expect(comp.state.formData).eql({ foo: "foobar" });
   });
 });
